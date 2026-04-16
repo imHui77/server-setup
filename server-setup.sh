@@ -4,6 +4,51 @@ set -e
 
 echo "===== 開始初始化設定 ====="
 
+# ── 0. 選擇最快的 apt 鏡像站
+pick_fastest_mirror() {
+    local mirrors=(
+        "archive.ubuntu.com"
+        "us.archive.ubuntu.com"
+        "de.archive.ubuntu.com"
+        "sg.archive.ubuntu.com"
+        "mirrors.cloudflare.com"
+        "free.nchc.org.tw"
+        "ftp.jaist.ac.jp"
+    )
+    local best_host=""
+    local best_ms=99999
+
+    echo "[0/6] 測試 apt 鏡像站速度..."
+    for host in "${mirrors[@]}"; do
+        # 用 curl 量測 TTFB（首位元組時間），timeout 5 秒
+        local ms
+        ms=$(curl -o /dev/null -s -w "%{time_starttransfer}" \
+            --connect-timeout 5 --max-time 5 \
+            "http://${host}/ubuntu/dists/jammy/Release" 2>/dev/null || echo "99")
+        # 轉成毫秒整數方便比較
+        local ms_int
+        ms_int=$(awk "BEGIN {printf \"%d\", $ms * 1000}")
+        echo "    ${host}: ${ms_int}ms"
+        if [ "$ms_int" -lt "$best_ms" ]; then
+            best_ms=$ms_int
+            best_host=$host
+        fi
+    done
+
+    echo "    => 最快鏡像：${best_host} (${best_ms}ms)"
+
+    # 若 sources.list 已是最佳鏡像則不動
+    if ! grep -q "http://${best_host}/ubuntu" /etc/apt/sources.list; then
+        # 備份原始設定
+        cp /etc/apt/sources.list /etc/apt/sources.list.bak
+        # 替換所有 ubuntu 鏡像網址
+        sed -i "s|http://[a-z.]*/ubuntu|http://${best_host}/ubuntu|g" /etc/apt/sources.list
+        echo "    sources.list 已更新（原始備份於 sources.list.bak）"
+    fi
+}
+
+pick_fastest_mirror
+
 # ── 1. 系統更新
 echo "[1/6] 更新系統套件..."
 apt update -y && apt upgrade -y
