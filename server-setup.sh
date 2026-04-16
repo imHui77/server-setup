@@ -102,7 +102,7 @@ apt install -y fail2ban curl wget git htop unzip
 
 # ── 3. fail2ban 設定
 echo "[3/6] 設定 fail2ban..."
-systemctl enable fail2ban --now
+systemctl enable fail2ban --now || true
 
 cat > /etc/fail2ban/jail.local << 'FAIL2BAN'
 [sshd]
@@ -112,8 +112,16 @@ findtime = 1h
 bantime = 24h
 FAIL2BAN
 
-systemctl restart fail2ban
-echo "    fail2ban 已啟動，SSH 暴力破解防護生效"
+systemctl restart fail2ban || true
+
+# 確認服務真的在跑
+sleep 2
+if systemctl is-active --quiet fail2ban; then
+    echo "    fail2ban 已啟動，SSH 暴力破解防護生效"
+else
+    echo "    ⚠️  警告：fail2ban 啟動失敗，請執行以下指令診斷："
+    echo "      journalctl -u fail2ban -n 30 --no-pager"
+fi
 
 # ── 4. 清理 log
 echo "[4/6] 清理 log..."
