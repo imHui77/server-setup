@@ -104,12 +104,20 @@ apt install -y fail2ban curl wget git htop unzip
 echo "[3/6] 設定 fail2ban..."
 systemctl enable fail2ban --now || true
 
-cat > /etc/fail2ban/jail.local << 'FAIL2BAN'
+# Debian 用 systemd journal，Ubuntu 用傳統 log 檔
+if grep -qi debian /etc/os-release 2>/dev/null && ! grep -qi ubuntu /etc/os-release 2>/dev/null; then
+    FAIL2BAN_BACKEND="backend = systemd"
+else
+    FAIL2BAN_BACKEND=""
+fi
+
+cat > /etc/fail2ban/jail.local << FAIL2BAN
 [sshd]
 enabled = true
 maxretry = 3
 findtime = 1h
 bantime = 24h
+${FAIL2BAN_BACKEND}
 FAIL2BAN
 
 systemctl restart fail2ban || true
