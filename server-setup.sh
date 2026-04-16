@@ -6,25 +6,54 @@ echo "===== 開始初始化設定 ====="
 
 # ── 0. 選擇最快的 apt 鏡像站
 pick_fastest_mirror() {
-    local mirrors=(
-        "archive.ubuntu.com"
-        "us.archive.ubuntu.com"
-        "de.archive.ubuntu.com"
-        "sg.archive.ubuntu.com"
-        "mirrors.cloudflare.com"
-        "free.nchc.org.tw"
-        "ftp.jaist.ac.jp"
-    )
+    # 偵測發行版
+    local distro repo_path
+    if grep -qi ubuntu /etc/os-release 2>/dev/null; then
+        distro="ubuntu"
+        repo_path="ubuntu"
+    elif grep -qi debian /etc/os-release 2>/dev/null; then
+        distro="debian"
+        repo_path="debian"
+    else
+        echo "    未知發行版，跳過鏡像最佳化"
+        return
+    fi
+    echo "[0/6] 偵測到 ${distro}，測試鏡像站速度..."
+
+    # 依發行版選鏡像清單
+    local mirrors=()
+    if [ "$distro" = "ubuntu" ]; then
+        mirrors=(
+            "archive.ubuntu.com"
+            "us.archive.ubuntu.com"
+            "de.archive.ubuntu.com"
+            "sg.archive.ubuntu.com"
+            "mirrors.cloudflare.com"
+            "free.nchc.org.tw"
+            "ftp.jaist.ac.jp"
+        )
+        local probe_path="ubuntu/dists/jammy/Release"
+    else
+        mirrors=(
+            "deb.debian.org"
+            "ftp.de.debian.org"
+            "ftp.us.debian.org"
+            "ftp.jp.debian.org"
+            "ftp.tw.debian.org"
+            "mirrors.tuna.tsinghua.edu.cn"
+        )
+        local probe_path="debian/dists/bookworm/Release"
+    fi
+
     local best_host=""
     local best_ms=99999
 
-    echo "[0/6] 測試 apt 鏡像站速度..."
     for host in "${mirrors[@]}"; do
         # 同時取得 HTTP 狀態碼與 TTFB，timeout 5 秒
         local result http_code ms
         result=$(curl -o /dev/null -s -w "%{http_code} %{time_starttransfer}" \
             --connect-timeout 5 --max-time 5 \
-            "http://${host}/ubuntu/dists/jammy/Release" 2>/dev/null) || true
+            "http://${host}/${probe_path}" 2>/dev/null) || true
         http_code=$(echo "$result" | awk '{print $1}')
         ms=$(echo "$result" | awk '{print $2}')
 
@@ -51,14 +80,12 @@ pick_fastest_mirror() {
         return
     fi
 
-    echo "    => 最快鏡像：${best_host} (${best_ms}.0ms)"
+    echo "    => 最快鏡像：${best_host} (${best_ms}ms)"
 
     # 若 sources.list 已是最佳鏡像則不動
-    if ! grep -q "http://${best_host}/ubuntu" /etc/apt/sources.list; then
-        # 備份原始設定
+    if ! grep -q "http://${best_host}/${repo_path}" /etc/apt/sources.list; then
         cp /etc/apt/sources.list /etc/apt/sources.list.bak
-        # 替換所有 ubuntu 鏡像網址
-        sed -i "s|http://[a-z.]*/ubuntu|http://${best_host}/ubuntu|g" /etc/apt/sources.list
+        sed -i "s|http://[a-zA-Z0-9._-]*/${repo_path}|http://${best_host}/${repo_path}|g" /etc/apt/sources.list
         echo "    sources.list 已更新（原始備份於 sources.list.bak）"
     fi
 }
