@@ -20,11 +20,20 @@ pick_fastest_mirror() {
 
     echo "[0/6] 測試 apt 鏡像站速度..."
     for host in "${mirrors[@]}"; do
-        # 用 curl 量測 TTFB（首位元組時間），timeout 5 秒
-        local ms
-        ms=$(curl -o /dev/null -s -w "%{time_starttransfer}" \
+        # 同時取得 HTTP 狀態碼與 TTFB，timeout 5 秒
+        local result http_code ms
+        result=$(curl -o /dev/null -s -w "%{http_code} %{time_starttransfer}" \
             --connect-timeout 5 --max-time 5 \
-            "http://${host}/ubuntu/dists/jammy/Release" 2>/dev/null || echo "99")
+            "http://${host}/ubuntu/dists/jammy/Release" 2>/dev/null) || true
+        http_code=$(echo "$result" | awk '{print $1}')
+        ms=$(echo "$result" | awk '{print $2}')
+
+        # 非 2xx/3xx 回應，或 TTFB 為 0（連線失敗的特徵）→ 視為不可用
+        if [[ ! "$http_code" =~ ^[23] ]] || [[ "$ms" == "0.000000" ]] || [[ -z "$ms" ]]; then
+            echo "    ${host}: 無法連線 (HTTP ${http_code:-N/A})"
+            continue
+        fi
+
         # 轉成毫秒（四捨五入到整數）方便比較，保留一位小數顯示
         local ms_int ms_display
         ms_int=$(awk "BEGIN {printf \"%.0f\", $ms * 1000}")
@@ -35,6 +44,12 @@ pick_fastest_mirror() {
             best_host=$host
         fi
     done
+
+    # 若所有鏡像都失敗，保留原設定
+    if [ -z "$best_host" ]; then
+        echo "    警告：所有鏡像測速失敗，保留原始 sources.list"
+        return
+    fi
 
     echo "    => 最快鏡像：${best_host} (${best_ms}.0ms)"
 
