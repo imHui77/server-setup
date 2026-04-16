@@ -25,17 +25,18 @@ pick_fastest_mirror() {
         ms=$(curl -o /dev/null -s -w "%{time_starttransfer}" \
             --connect-timeout 5 --max-time 5 \
             "http://${host}/ubuntu/dists/jammy/Release" 2>/dev/null || echo "99")
-        # 轉成毫秒整數方便比較
-        local ms_int
-        ms_int=$(awk "BEGIN {printf \"%d\", $ms * 1000}")
-        echo "    ${host}: ${ms_int}ms"
+        # 轉成毫秒（四捨五入到整數）方便比較，保留一位小數顯示
+        local ms_int ms_display
+        ms_int=$(awk "BEGIN {printf \"%.0f\", $ms * 1000}")
+        ms_display=$(awk "BEGIN {printf \"%.1f\", $ms * 1000}")
+        echo "    ${host}: ${ms_display}ms"
         if [ "$ms_int" -lt "$best_ms" ]; then
             best_ms=$ms_int
             best_host=$host
         fi
     done
 
-    echo "    => 最快鏡像：${best_host} (${best_ms}ms)"
+    echo "    => 最快鏡像：${best_host} (${best_ms}.0ms)"
 
     # 若 sources.list 已是最佳鏡像則不動
     if ! grep -q "http://${best_host}/ubuntu" /etc/apt/sources.list; then
