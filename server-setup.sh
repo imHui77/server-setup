@@ -138,18 +138,58 @@ truncate -s 0 /var/log/btmp.1 2>/dev/null || true
 journalctl --vacuum-time=7d
 apt clean
 
-# ── 5. Docker 清理（如果有安裝）
-if command -v docker &> /dev/null; then
-    echo "[5/6] 清理 Docker..."
-    docker builder prune -af
-    docker image prune -af
-    docker volume prune -f
+# ── 5. Docker 安裝與清理
+echo "[5/6] 檢查 Docker..."
 
-    # Docker 每週自動清理 crontab
-    (crontab -l 2>/dev/null; echo "0 3 * * 0 docker builder prune -af > /var/log/docker-prune.log 2>&1") | crontab -
-    echo "    Docker 清理完成，已設定每週日 03:00 自動清 build cache"
+install_docker() {
+    local docker_distro
+    if grep -qi ubuntu /etc/os-release 2>/dev/null; then
+        docker_distro="ubuntu"
+    elif grep -qi debian /etc/os-release 2>/dev/null; then
+        docker_distro="debian"
+    else
+        echo "    未知發行版，跳過 Docker 安裝"
+        return 1
+    fi
+
+    echo "    安裝 Docker（${docker_distro}）..."
+    apt install -y ca-certificates curl gnupg
+
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL "https://download.docker.com/linux/${docker_distro}/gpg" -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+
+    local codename
+    codename=$(. /etc/os-release && echo "${VERSION_CODENAME}")
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/${docker_distro} ${codename} stable" \
+        > /etc/apt/sources.list.d/docker.list
+
+    apt update -y
+    apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    systemctl enable docker --now
+    echo "    Docker 安裝完成"
+}
+
+if ! command -v docker &> /dev/null; then
+    install_docker || true
+elif ! docker compose version &> /dev/null 2>&1; then
+    echo "    Docker 已安裝但缺少 Compose plugin，補裝..."
+    apt install -y docker-compose-plugin || true
 else
-    echo "[5/6] Docker 未安裝，跳過"
+    echo "    Docker 與 Compose 已安裝，略過安裝步驟"
+fi
+
+# Docker 清理（已安裝才執行）
+if command -v docker &> /dev/null; then
+    echo "    清理 Docker..."
+    docker builder prune -af || true
+    docker image prune -af || true
+    docker volume prune -f || true
+
+    # Docker 每週自動清理 crontab（避免重複加入）
+    (crontab -l 2>/dev/null | grep -v "docker builder prune"; \
+        echo "0 3 * * 0 docker builder prune -af > /var/log/docker-prune.log 2>&1") | crontab -
+    echo "    Docker 清理完成，已設定每週日 03:00 自動清 build cache"
 fi
 
 # ── 6. logrotate 設定（rclone，如果有使用）
